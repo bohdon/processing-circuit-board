@@ -21,6 +21,11 @@ def normalize(vector):
     return result
 
 
+def delta_direction(pt_a, pt_b):
+    delta = pt_b - pt_a
+    return normalize(delta)
+
+
 class Socket(object):
     def __init__(self, point, direction):
         self.point = point
@@ -75,13 +80,23 @@ class ConnectionLine(object):
             next_pt = self.find_next_point(last_pt, board)
             self.points.append(next_pt)
 
+    def get_straight_delta(self):
+        delta = self.end.point - self.start.point
+        return abs(abs(delta.x) - abs(delta.y))
+
     def find_next_point(self, last_pt, board):
-        next_pt = PVector(last_pt.x, last_pt.y)
-        delta = self.end.point - next_pt
-        if delta.x != 0:
-            next_pt.x += math.copysign(1, delta.x)
-        if delta.y != 0:
-            next_pt.y += math.copysign(1, delta.y)
+        # travel straight for half of the available
+        # straight delta at the start
+        straight_delta = self.get_straight_delta()
+        straight_start = round(straight_delta * 0.5)
+        if len(self.points) < straight_start:
+            # attempt to go in the initial direction
+            next_pt = last_pt + self.start.direction
+            if not board.is_point_occupied(next_pt):
+                return next_pt
+
+        delta_dir = delta_direction(last_pt, self.end.point)
+        next_pt = last_pt + delta_dir
         return next_pt
 
     def is_complete(self):
@@ -141,7 +156,7 @@ class CircuitConnector(object):
         return Socket(point, direction)
 
     def randomize_sockets(self):
-        count = random.randrange(2, 5)
+        count = random.randrange(2, 8)
         self.socket_pairs = []
         for i in range(count):
             start = self.get_random_socket()
