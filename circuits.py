@@ -126,8 +126,12 @@ class CircuitConnector(object):
         self.dot_size = 4
         self.socket_size = 10
         self.socket_pairs = []
+        self.fill_points = []
+        self.dirty = False
 
     def is_point_occupied(self, pt):
+        if pt in self.fill_points:
+            return True
         for socket in self.socket_pairs:
             if socket.start.point == pt or socket.end.point == pt:
                 return True
@@ -164,6 +168,16 @@ class CircuitConnector(object):
         direction = self.get_random_socket_direction()
         return Socket(point, direction)
 
+    def set_point_occupied(self, pt, occupied):
+        if occupied:
+            if not self.is_point_occupied(pt):
+                self.fill_points.append(pt)
+                self.dirty = True
+        else:
+            if pt in self.fill_points:
+                self.fill_points.remove(pt)
+                self.dirty = True
+
     def randomize_sockets(self):
         count = random.randrange(2, 8)
         self.socket_pairs = []
@@ -177,9 +191,11 @@ class CircuitConnector(object):
         for socket_pair in self.socket_pairs:
             if socket_pair.start.point == pt:
                 socket_pair.start.rotate_direction()
+                self.dirty = True
                 return
             if socket_pair.end.point == pt:
                 socket_pair.end.rotate_direction()
+                self.dirty = True
                 return
 
     def set_line_weight(self, pt, weight):
@@ -212,12 +228,14 @@ class CircuitConnector(object):
             if not socket.line.is_complete():
                 while not socket.line.is_complete():
                     socket.line.tick(self)
+                    self.dirty = True
                 return
 
     def tick_until_finished(self):
         for socket in self.socket_iter():
             while not socket.line.is_complete():
                 socket.line.tick(self)
+                self.dirty = True
 
     def rebuild_connection_lines(self):
         self.reset_lines()
@@ -234,13 +252,19 @@ class CircuitConnector(object):
         strokeWeight(weight)
         line(start.x, start.y, end.x, end.y)
 
+    def draw_if_dirty(self):
+        if self.dirty:
+            self.draw()
+
     def draw(self, skip_grid=True):
+        self.dirty = False
         background(204)
         if not skip_grid:
             self.draw_grid()
         for socket_pair in self.socket_pairs:
             self.draw_socket_pair(socket_pair)
             self.draw_connecting_line(socket_pair.line)
+        self.draw_fill_points()
 
     def draw_grid(self):
         stroke(*BLACK)
@@ -248,6 +272,12 @@ class CircuitConnector(object):
         for x in range(int(self.grid_size.x)):
             for y in range(int(self.grid_size.y)):
                 self.draw_point(PVector(x, y), 1, 1)
+
+    def draw_fill_points(self):
+        stroke(*BLACK)
+        fill(*BLACK)
+        for pt in self.fill_points:
+            self.draw_point(pt, 1, 1)
 
     def draw_socket_pair(self, socket_pair):
         start = socket_pair.start
@@ -310,12 +340,21 @@ def keyPressed():
         # clear board
         BOARD = CircuitConnector(PVector(960, 540))
         BOARD.draw()
+    elif keyCode == 70:  # F
+        # fill point
+        BOARD.set_point_occupied(mouse_pt, True)
+        BOARD.draw_if_dirty()
+    elif keyCode == 69:  # E
+        # erase
+        BOARD.set_point_occupied(mouse_pt, False)
+        BOARD.draw_if_dirty()
 
     elif keyCode == 82:  # R
         # rotate nearby socket
         BOARD.rotate_socket(mouse_pt)
-        BOARD.rebuild_connection_lines()
-        BOARD.draw()
+        if BOARD.dirty:
+            BOARD.rebuild_connection_lines()
+            BOARD.draw()
 
     # drawing
     elif keyCode == 8:  # backspace
@@ -324,7 +363,7 @@ def keyPressed():
         BOARD.draw()
     elif keyCode == 39:  # right
         BOARD.tick_connection_lines()
-        BOARD.draw()
+        BOARD.draw_if_dirty()
     elif keyCode == 32:  # Space
         # tick lines til finished
         BOARD.rebuild_connection_lines()
