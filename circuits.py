@@ -45,7 +45,9 @@ def get_valid_turn_dirs(current_dir):
         return [
             DIRECTIONS[index],
             DIRECTIONS[index - 1],
-            DIRECTIONS[(index + 1) % len(DIRECTIONS)]
+            DIRECTIONS[(index + 1) % len(DIRECTIONS)],
+            DIRECTIONS[index - 2],
+            DIRECTIONS[(index + 2) % len(DIRECTIONS)],
         ]
     return []
 
@@ -84,7 +86,8 @@ class Socket(object):
         self.direction = direction
 
     def rotate_direction(self):
-        self.direction = PVector(-self.direction.y, self.direction.x)
+        dirs = get_valid_turn_dirs(self.direction)
+        self.direction = dirs[1]
 
     def auto_set_direction(self, target_pt):
         delta = target_pt - self.point
@@ -115,6 +118,7 @@ class ConnectionLine(object):
     def __init__(self, socket_pair):
         self.socket_pair = socket_pair
         self.weight = 3
+        self.cap_straights = 4
         self.points = []
 
     @property
@@ -182,7 +186,7 @@ class ConnectionLine(object):
         # travel straight for half of the available
         # straight delta at the start
         straight_delta = self.get_straight_delta()
-        straight_start = round(straight_delta * 0.5)
+        straight_start = max([round(straight_delta * 0.5), self.cap_straights])
 
         if len(self.points) < straight_start:
             # attempt to go in the start direction
@@ -193,9 +197,17 @@ class ConnectionLine(object):
 
         def score_dir(direction):
             score = 0
-            # 0.5 for blocked
+            # not blocked
             if not self.is_blocked(last_pt, direction, board):
-                score += 0.1
+                score += 0.25
+            # next point in same direction is not blocked
+            next_pt = last_pt + direction
+            if not self.is_blocked(next_pt, direction, board):
+                score += 0.2
+            # next point in same direction is not blocked
+            next_pt = next_pt + direction
+            if not self.is_blocked(next_pt, direction, board):
+                score += 0.2
             # 0..2 for directionality towards target
             score += dot(direction, target_dir) + 1
             return score
