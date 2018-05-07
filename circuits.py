@@ -46,8 +46,8 @@ def get_valid_turn_dirs(current_dir):
             DIRECTIONS[index],
             DIRECTIONS[index - 1],
             DIRECTIONS[(index + 1) % len(DIRECTIONS)],
-            DIRECTIONS[index - 2],
-            DIRECTIONS[(index + 2) % len(DIRECTIONS)],
+            # DIRECTIONS[index - 2],
+            # DIRECTIONS[(index + 2) % len(DIRECTIONS)],
         ]
     return []
 
@@ -71,8 +71,8 @@ def normalize(vector):
     return result
 
 
-def delta_direction(pt_a, pt_b):
-    delta = pt_b - pt_a
+def delta_direction(start_pt, end_pt):
+    delta = end_pt - start_pt
     return normalize(delta)
 
 
@@ -120,6 +120,8 @@ class ConnectionLine(object):
         self.weight = 3
         self.cap_straights = 4
         self.points = []
+        # points built backwards from the end
+        self.end_points = []
 
     @property
     def start(self):
@@ -131,18 +133,40 @@ class ConnectionLine(object):
 
     def reset(self):
         self.points = []
+        self.end_points = []
+
+    def contains_point(self, pt):
+        return pt in self.points
 
     def tick(self, board):
         if not self.points:
             self.points.append(self.start.point)
-        else:
-            last_pt = self.points[-1]
-            if len(self.points) > 1:
-                last_dir = delta_direction(self.points[-2], last_pt)
-            else:
-                last_dir = self.start.direction
-            next_pt = self.find_next_point(last_pt, last_dir, board)
-            self.points.append(next_pt)
+            self.points.append(self.start.point + self.start.direction)
+        if not self.end_points:
+            self.end_points.append(self.end.point)
+            self.end_points.append(self.end.point + self.end.direction)
+
+        # grow beginning
+        target_end_pt = self.end_points[-1]
+        next_fwd_pt = self.find_next_point(
+            self.points, target_end_pt, board)
+        self.points.append(next_fwd_pt)
+
+        if vector_equal(self.points[-1], self.end_points[-1]):
+            # combine the end points and finish
+            self.points.extend(reversed(self.end_points[:-1]))
+            return
+
+        # grow end
+        target_st_pt = self.points[-1]
+        next_bkwd_pt = self.find_next_point(
+            self.end_points, target_st_pt, board)
+        self.end_points.append(next_bkwd_pt)
+
+        if vector_equal(self.points[-1], self.end_points[-1]):
+            # combine the end points and finish
+            self.points.extend(reversed(self.end_points[:-1]))
+            return
 
     def get_straight_delta(self):
         delta = self.end.point - self.start.point
@@ -182,18 +206,23 @@ class ConnectionLine(object):
         else:
             return best_dir
 
-    def find_next_point(self, last_pt, last_dir, board):
+    def find_next_point(self, points, target_pt, board):
+        last_pt = points[-1]
+        last_dir = delta_direction(points[-2], last_pt)
+        initial_dir = delta_direction(points[0], points[1])
+
         # travel straight for half of the available
         # straight delta at the start
         straight_delta = self.get_straight_delta()
-        straight_start = max([round(straight_delta * 0.5), self.cap_straights])
+        straight_start = max(
+            [round(straight_delta * 0.5) + 2, self.cap_straights])
 
         if len(self.points) < straight_start:
-            # attempt to go in the start direction
-            target_dir = self.start.direction
+            # attempt to go in the initial direction
+            target_dir = initial_dir
         else:
             # go towards the end point
-            target_dir = delta_direction(last_pt, self.end.point)
+            target_dir = delta_direction(last_pt, target_pt)
 
         def score_dir(direction):
             score = 0
@@ -214,7 +243,7 @@ class ConnectionLine(object):
 
         turn_dirs = get_valid_turn_dirs(last_dir)
 
-        if vector_dist(last_pt, self.end.point) < 5:
+        if vector_dist(last_pt, target_pt) < 5:
             # go directly to target, without fail
             next_dir = target_dir
         else:
@@ -231,11 +260,11 @@ class ConnectionLine(object):
                 vector_equal(self.points[-1], self.end.point))
 
 
-class CircuitConnector(object):
+class CircuitBoard(object):
 
     def __init__(self, canvas_size):
         self.canvas_size = canvas_size
-        self.cell_size = PVector(10, 10)
+        self.cell_size = PVector(12, 12)
         self.grid_size = PVector(
             int(self.canvas_size.x / self.cell_size.x),
             int(self.canvas_size.y / self.cell_size.y))
@@ -252,7 +281,7 @@ class CircuitConnector(object):
             if (vector_equal(socket.start.point, pt) or
                     vector_equal(socket.end.point, pt)):
                 return True
-            if pt in socket.line.points:
+            if socket.line.contains_point(pt):
                 return True
         return False
 
@@ -358,7 +387,6 @@ class CircuitConnector(object):
             if not socket.line.is_complete():
                 socket.line.tick(self)
                 self.dirty = True
-                return
 
     def tick_until_finished(self):
         for socket in self.socket_iter():
@@ -438,7 +466,7 @@ class CircuitConnector(object):
 def setup():
     size(960, 540)
     global BOARD
-    BOARD = CircuitConnector(PVector(960, 540))
+    BOARD = CircuitBoard(PVector(960, 540))
 
 
 def draw():
@@ -467,7 +495,7 @@ def keyPressed():
 
     elif keyCode == 67:  # C
         # clear board
-        BOARD = CircuitConnector(PVector(960, 540))
+        BOARD = CircuitBoard(PVector(960, 540))
         BOARD.draw()
     elif keyCode == 70:  # F
         # fill point
