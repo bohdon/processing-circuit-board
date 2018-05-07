@@ -50,24 +50,6 @@ def get_valid_turn_dirs(current_dir):
     return []
 
 
-def get_best_dir(dirs, target_dir):
-    if not dirs:
-        return
-
-    # for direction in dirs:
-    #     if vector_equal(direction, target_dir):
-    #         return direction
-
-    best_dot = -1
-    best_dir = dirs[0]
-    for this_dir in dirs:
-        this_dot = dot(this_dir, target_dir)
-        if this_dot > best_dot:
-            best_dot = this_dot
-            best_dir = this_dir
-    return best_dir
-
-
 def dot(a, b):
     mag_a = a.mag()
     mag_b = b.mag()
@@ -162,27 +144,72 @@ class ConnectionLine(object):
         delta = self.end.point - self.start.point
         return abs(abs(delta.x) - abs(delta.y))
 
+    def is_blocked(self, pt, direction, board):
+        target_pt = pt + direction
+        if board.is_point_occupied(target_pt):
+            return True
+
+        # if direction is diagonal,
+        # check if there is a line between the
+        # surrounding corners
+        is_diagonal = abs(direction.x) > 0 and abs(direction.y) > 0
+        if is_diagonal:
+            dir_x = PVector(direction.x, 0)
+            dir_y = PVector(0, direction.y)
+            pt_x = pt + dir_x
+            pt_y = pt + dir_y
+            if board.is_line_occupied(pt_x, pt_y):
+                return True
+
+    def get_best_dir(self, options, target_dir, score_dir):
+        if not options:
+            return target_dir
+
+        best_score = 0
+        best_dir = None
+        for this_dir in options:
+            score = score_dir(this_dir)
+            if score > best_score:
+                best_score = score
+                best_dir = this_dir
+
+        if best_dir is None:
+            return target_dir
+        else:
+            return best_dir
+
     def find_next_point(self, last_pt, last_dir, board):
         # travel straight for half of the available
         # straight delta at the start
         straight_delta = self.get_straight_delta()
         straight_start = round(straight_delta * 0.5)
+
         if len(self.points) < straight_start:
-            # attempt to go in the initial direction
-            next_pt = last_pt + self.start.direction
-            if not board.is_point_occupied(next_pt):
-                return next_pt
+            # attempt to go in the start direction
+            target_dir = self.start.direction
+        else:
+            # go towards the end point
+            target_dir = delta_direction(last_pt, self.end.point)
+
+        def score_dir(direction):
+            score = 0
+            # 0.5 for blocked
+            if not self.is_blocked(last_pt, direction, board):
+                score += 0.1
+            # 0..2 for directionality towards target
+            score += dot(direction, target_dir) + 1
+            return score
 
         turn_dirs = get_valid_turn_dirs(last_dir)
-        target_dir = delta_direction(last_pt, self.end.point)
-        next_dir = get_best_dir(turn_dirs, target_dir)
-        print('target dir: {0}, best dir: {1}'.format(target_dir, next_dir))
 
-        if not next_dir or vector_dist(last_pt, self.end.point) < 5:
-            next_dir = normalize(target_dir)
+        if vector_dist(last_pt, self.end.point) < 5:
+            # go directly to target, without fail
+            next_dir = target_dir
+        else:
+            next_dir = self.get_best_dir(turn_dirs, target_dir, score_dir)
 
         next_pt = last_pt + next_dir
-        if board.is_point_occupied(next_pt):
+        if self.is_blocked(last_pt, next_dir, board):
             next_pt.visible = False
         return next_pt
 
@@ -216,6 +243,19 @@ class CircuitConnector(object):
             if pt in socket.line.points:
                 return True
         return False
+
+    def is_line_occupied(self, pt_a, pt_b):
+        for socket in self.socket_pairs:
+            if pt_a in socket.line.points:
+                index = socket.line.points.index(pt_a)
+                if index > 0:
+                    prev_pt = socket.line.points[index - 1]
+                    if vector_equal(prev_pt, pt_b):
+                        return True
+                if index < (len(socket.line.points) - 1):
+                    next_pt = socket.line.points[index + 1]
+                    if vector_equal(next_pt, pt_b):
+                        return True
 
     def add_socket_pair(self, start, end):
         self.socket_pairs.append(SocketPair(start, end))
@@ -306,6 +346,7 @@ class CircuitConnector(object):
             if not socket.line.is_complete():
                 socket.line.tick(self)
                 self.dirty = True
+                return
 
     def tick_until_finished(self):
         for socket in self.socket_iter():
