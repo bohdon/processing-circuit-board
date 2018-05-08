@@ -3,7 +3,7 @@
 
 A circuit board generator made using [Processing](https://processing.org/)
 
-![Example](circuits_sample.png?raw=true "Example")
+![Screenshot](screenshot.png)
 
 ## Hotkeys
 
